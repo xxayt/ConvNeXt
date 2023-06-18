@@ -1,0 +1,17 @@
+# fine-turn: from ImageNet22K to ImageNet1K for ConvNeXt-B(224x224)
+python -m torch.distributed.launch --nproc_per_node=1 main.py \
+--model convnext_base --drop_path 0.2 --input_size 224 \
+--batch_size 32 --lr 5e-5 --update_freq 2 \
+--warmup_epochs 0 --epochs 30 --weight_decay 1e-8  \
+--layer_decay 0.8 --head_init_scale 0.001 --cutmix 0 --mixup 0 \
+--finetune /pretrain/ \
+--data_path ../imagenet \
+--output_dir ./logs/base224_1kfrom22k
+
+
+# evaluation: from ImageNet1K to ImageNet1K (src: Acc@1 85.820 Acc@5 97.868 loss 0.563)
+python -m torch.distributed.launch --nproc_per_node=1 main.py \
+--model convnext_base --eval true \
+--resume https://dl.fbaipublicfiles.com/convnext/convnext_base_22k_1k_224.pth \
+--input_size 224 --drop_path 0.2 \
+--data_path ../imagenet
