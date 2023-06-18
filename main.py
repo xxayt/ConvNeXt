@@ -32,6 +32,7 @@ import utils
 import models.convnext
 import models.convnext_isotropic
 
+# 将string转换为bool
 def str2bool(v):
     """
     Converts string to bool type; enables command line 
@@ -46,6 +47,7 @@ def str2bool(v):
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
+# 用于解析命令行参数
 def get_args_parser():
     parser = argparse.ArgumentParser('ConvNeXt training and evaluation script for image classification', add_help=False)
     parser.add_argument('--batch_size', default=64, type=int,
@@ -204,29 +206,29 @@ def get_args_parser():
 def main(args):
     utils.init_distributed_mode(args)
     print(args)
-    device = torch.device(args.device)
+    device = torch.device(args.device)  # can be "cuda" or "cpu"
 
     # fix the seed for reproducibility
-    seed = args.seed + utils.get_rank()
+    seed = args.seed + utils.get_rank()  # 固定随机种子
     torch.manual_seed(seed)
     np.random.seed(seed)
     cudnn.benchmark = True
 
-    dataset_train, args.nb_classes = build_dataset(is_train=True, args=args)
+    dataset_train, args.nb_classes = build_dataset(is_train=True, args=args)  # 构建训练集
     if args.disable_eval:
         args.dist_eval = False
         dataset_val = None
     else:
-        dataset_val, _ = build_dataset(is_train=False, args=args)
+        dataset_val, _ = build_dataset(is_train=False, args=args)  # 构建验证集
 
-    num_tasks = utils.get_world_size()
-    global_rank = utils.get_rank()
+    num_tasks = utils.get_world_size()  # 分布式训练时，获取进程数
+    global_rank = utils.get_rank()  # 分布式训练时，获取进程id
 
-    sampler_train = torch.utils.data.DistributedSampler(
+    sampler_train = torch.utils.data.DistributedSampler(  # 分布式训练时，使用分布式采样器
         dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True, seed=args.seed,
     )
     print("Sampler_train = %s" % str(sampler_train))
-    if args.dist_eval:
+    if args.dist_eval:  # 分布式验证
         if len(dataset_val) % num_tasks != 0:
             print('Warning: Enabling distributed evaluation with an eval dataset not divisible by process number. '
                     'This will slightly alter validation results as extra duplicate entries are added to achieve '
@@ -238,12 +240,12 @@ def main(args):
 
     if global_rank == 0 and args.log_dir is not None:
         os.makedirs(args.log_dir, exist_ok=True)
-        log_writer = utils.TensorboardLogger(log_dir=args.log_dir)
+        log_writer = utils.TensorboardLogger(log_dir=args.log_dir)  # 创建tensorboard日志文件夹
     else:
         log_writer = None
 
     if global_rank == 0 and args.enable_wandb:
-        wandb_logger = utils.WandbLogger(args)
+        wandb_logger = utils.WandbLogger(args)  # 创建wandb日志文件夹
     else:
         wandb_logger = None
 
@@ -253,7 +255,7 @@ def main(args):
         num_workers=args.num_workers,
         pin_memory=args.pin_mem,
         drop_last=True,
-    )
+    )  # 创建训练集的数据加载器
 
     if dataset_val is not None:
         data_loader_val = torch.utils.data.DataLoader(
@@ -262,20 +264,20 @@ def main(args):
             num_workers=args.num_workers,
             pin_memory=args.pin_mem,
             drop_last=False
-        )
+        )  # 创建验证集的数据加载器
     else:
         data_loader_val = None
 
     mixup_fn = None
-    mixup_active = args.mixup > 0 or args.cutmix > 0. or args.cutmix_minmax is not None
+    mixup_active = args.mixup > 0 or args.cutmix > 0. or args.cutmix_minmax is not None  # 是否使用mixup
     if mixup_active:
         print("Mixup is activated!")
-        mixup_fn = Mixup(
+        mixup_fn = Mixup(  # 创建mixup函数(一种使用混合模型的数据增强方法，增强泛化性)
             mixup_alpha=args.mixup, cutmix_alpha=args.cutmix, cutmix_minmax=args.cutmix_minmax,
             prob=args.mixup_prob, switch_prob=args.mixup_switch_prob, mode=args.mixup_mode,
             label_smoothing=args.smoothing, num_classes=args.nb_classes)
 
-    model = create_model(
+    model = create_model(  # 创建模型
         args.model, 
         pretrained=False, 
         num_classes=args.nb_classes, 
@@ -284,7 +286,7 @@ def main(args):
         head_init_scale=args.head_init_scale,
         )
 
-    if args.finetune:
+    if args.finetune:  # 加载预训练模型
         if args.finetune.startswith('https'):
             checkpoint = torch.hub.load_state_dict_from_url(
                 args.finetune, map_location='cpu', check_hash=True)
@@ -324,8 +326,8 @@ def main(args):
     print("Model = %s" % str(model_without_ddp))
     print('number of params:', n_parameters)
 
-    total_batch_size = args.batch_size * args.update_freq * utils.get_world_size()
-    num_training_steps_per_epoch = len(dataset_train) // total_batch_size
+    total_batch_size = args.batch_size * args.update_freq * utils.get_world_size()  # 分布式下，总batch_size大小
+    num_training_steps_per_epoch = len(dataset_train) // total_batch_size  # 每个epoch的训练步数
     print("LR = %.8f" % args.lr)
     print("Batch size = %d" % total_batch_size)
     print("Update frequent = %d" % args.update_freq)
@@ -336,7 +338,7 @@ def main(args):
         num_layers = 12 # convnext layers divided into 12 parts, each with a different decayed lr value.
         assert args.model in ['convnext_small', 'convnext_base', 'convnext_large', 'convnext_xlarge'], \
              "Layer Decay impl only supports convnext_small/base/large/xlarge"
-        assigner = LayerDecayValueAssigner(list(args.layer_decay ** (num_layers + 1 - i) for i in range(num_layers + 2)))
+        assigner = LayerDecayValueAssigner(list(args.layer_decay ** (num_layers + 1 - i) for i in range(num_layers + 2)))  # 为每一层分配不同的学习率
     else:
         assigner = None
 
@@ -344,18 +346,18 @@ def main(args):
         print("Assigned values = %s" % str(assigner.values))
 
     if args.distributed:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=False)
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=False)  # 分布式训练
         model_without_ddp = model.module
 
-    optimizer = create_optimizer(
+    optimizer = create_optimizer(  # 创建优化器
         args, model_without_ddp, skip_list=None,
-        get_num_layer=assigner.get_layer_id if assigner is not None else None, 
+        get_num_layer=assigner.get_layer_id if assigner is not None else None,
         get_layer_scale=assigner.get_scale if assigner is not None else None)
 
     loss_scaler = NativeScaler() # if args.use_amp is False, this won't be used
 
     print("Use Cosine LR scheduler")
-    lr_schedule_values = utils.cosine_scheduler(
+    lr_schedule_values = utils.cosine_scheduler(  # 创建学习率cos调度器
         args.lr, args.min_lr, args.epochs, num_training_steps_per_epoch,
         warmup_epochs=args.warmup_epochs, warmup_steps=args.warmup_steps,
     )
@@ -368,11 +370,11 @@ def main(args):
 
     if mixup_fn is not None:
         # smoothing is handled with mixup label transform
-        criterion = SoftTargetCrossEntropy()
+        criterion = SoftTargetCrossEntropy()  # 使用软目标交叉熵损失函数
     elif args.smoothing > 0.:
-        criterion = LabelSmoothingCrossEntropy(smoothing=args.smoothing)
+        criterion = LabelSmoothingCrossEntropy(smoothing=args.smoothing)  # 使用标签平滑交叉熵损失函数
     else:
-        criterion = torch.nn.CrossEntropyLoss()
+        criterion = torch.nn.CrossEntropyLoss()  # 使用交叉熵损失函数
 
     print("criterion = %s" % str(criterion))
 
@@ -390,16 +392,17 @@ def main(args):
     if args.model_ema and args.model_ema_eval:
         max_accuracy_ema = 0.0
 
+    # 开始训练
     print("Start training for %d epochs" % args.epochs)
     start_time = time.time()
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             data_loader_train.sampler.set_epoch(epoch)
         if log_writer is not None:
-            log_writer.set_step(epoch * num_training_steps_per_epoch * args.update_freq)
+            log_writer.set_step(epoch * num_training_steps_per_epoch * args.update_freq)  # 设置tensorboard的步数
         if wandb_logger:
-            wandb_logger.set_steps()
-        train_stats = train_one_epoch(
+            wandb_logger.set_steps()  # 设置wandb的步数
+        train_stats = train_one_epoch(  # 训练一个epoch
             model, criterion, data_loader_train, optimizer,
             device, epoch, loss_scaler, args.clip_grad, model_ema, mixup_fn,
             log_writer=log_writer, wandb_logger=wandb_logger, start_steps=epoch * num_training_steps_per_epoch,
@@ -407,12 +410,12 @@ def main(args):
             num_training_steps_per_epoch=num_training_steps_per_epoch, update_freq=args.update_freq,
             use_amp=args.use_amp
         )
-        if args.output_dir and args.save_ckpt:
+        if args.output_dir and args.save_ckpt:  # 保存模型
             if (epoch + 1) % args.save_ckpt_freq == 0 or epoch + 1 == args.epochs:
                 utils.save_model(
                     args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
                     loss_scaler=loss_scaler, epoch=epoch, model_ema=model_ema)
-        if data_loader_val is not None:
+        if data_loader_val is not None:  # 验证
             test_stats = evaluate(data_loader_val, model, device, use_amp=args.use_amp)
             print(f"Accuracy of the model on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%")
             if max_accuracy < test_stats["acc1"]:
@@ -423,11 +426,12 @@ def main(args):
                         loss_scaler=loss_scaler, epoch="best", model_ema=model_ema)
             print(f'Max accuracy: {max_accuracy:.2f}%')
 
-            if log_writer is not None:
+            if log_writer is not None:  # 更新tensorboard日志
                 log_writer.update(test_acc1=test_stats['acc1'], head="perf", step=epoch)
                 log_writer.update(test_acc5=test_stats['acc5'], head="perf", step=epoch)
                 log_writer.update(test_loss=test_stats['loss'], head="perf", step=epoch)
 
+            # logging
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          **{f'test_{k}': v for k, v in test_stats.items()},
                          'epoch': epoch,
@@ -462,7 +466,7 @@ def main(args):
             wandb_logger.log_epoch_metrics(log_stats)
 
     if wandb_logger and args.wandb_ckpt and args.save_ckpt and args.output_dir:
-        wandb_logger.log_checkpoints()
+        wandb_logger.log_checkpoints()  # 保存wandb日志
 
 
     total_time = time.time() - start_time
